@@ -59,8 +59,6 @@ void SceneCompletionNode::executeCB(const scene_completion::CompleteSceneGoalCon
 {
     //this is the merged set of captured pointclouds
     pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud_full(new pcl::PointCloud<pcl::PointXYZRGB>());
-    //these are the clusters of partial objects
-    std::vector<pcl::PointCloud<pcl::PointXYZRGB>::Ptr> cloudClusters;
 
      //We need to wait until n_clouds_per_recognition clouds have been received
      ros::Rate warn_rate(1.0);
@@ -97,14 +95,69 @@ void SceneCompletionNode::executeCB(const scene_completion::CompleteSceneGoalCon
 
     for (std::vector<pcl::PointIndices>::const_iterator it = cluster_indices.begin (); it != cluster_indices.end (); ++it)
     {
+        //this is the set of points corresponding to the visible region of a single object
         pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud_cluster (new pcl::PointCloud<pcl::PointXYZRGB>);
         for (std::vector<int>::const_iterator pit = it->indices.begin (); pit != it->indices.end (); pit++)
             cloud_cluster->points.push_back (cloud_full->points[*pit]); //*
+
         cloud_cluster->width = cloud_cluster->points.size ();
         cloud_cluster->height = 1;
         cloud_cluster->is_dense = true;
 
-        cloudClusters.push_back(cloud_cluster);
+        bool runShapeCompletion = true;//TODO MAKE DYNAMIC  RECONFIGURE
+        //if we are running shape completion, then we
+        if(runShapeCompletion)
+        {
+            //
+            //shape_completion_client.run(cloud_cluster)
+        }
+        else{
+            //just mesh the partial view and return that
+
+            //TODO RUN cluster through marching cubes
+            //pointcloud -> mesh
+        //        NormalEstimationOMP<PointXYZ, Normal> ne;
+        //        search::KdTree<PointXYZ>::Ptr tree1 (new search::KdTree<PointXYZ>);
+        //        tree1->setInputCloud (cloud);
+        //        ne.setInputCloud (cloud);
+        //        ne.setSearchMethod (tree1);
+        //        ne.setKSearch (20);
+        //        PointCloud<Normal>::Ptr normals (new PointCloud<Normal>);
+        //        ne.compute (*normals);
+
+        //        // Concatenate the XYZ and normal fields*
+        //        PointCloud<PointNormal>::Ptr cloud_with_normals (new PointCloud<PointNormal>);
+        //        concatenateFields(*cloud, *normals, *cloud_with_normals);
+
+        //        // Create search tree*
+        //        search::KdTree<PointNormal>::Ptr tree (new search::KdTree<PointNormal>);
+        //        tree->setInputCloud (cloud_with_normals);
+
+        //        cout << "begin marching cubes reconstruction" << endl;
+
+        //        MarchingCubesRBF<PointNormal> mc;
+        //        PolygonMesh::Ptr triangles(new PolygonMesh);
+        //        mc.setInputCloud (cloud_with_normals);
+        //        mc.setSearchMethod (tree);
+        //        mc.reconstruct (*triangles);
+
+
+                //TODO add each vertices + triangles to result
+                //
+                //shape_msgs::Mesh mesh;
+        //        shape_msgs::MeshTriangle t = mesh.triangles.at(i);
+
+        //        triangles->push_back(t.vertex_indices.at(0));
+        //        triangles->push_back(t.vertex_indices.at(1));
+        //        triangles->push_back(t.vertex_indices.at(2));
+
+        //        pcl::Vertices* p = new pcl::Vertices;
+        //        p->vertices.push_back( t.vertex_indices.at(0));
+        //        p->vertices.push_back( t.vertex_indices.at(1));
+        //        p->vertices.push_back( t.vertex_indices.at(2));
+        //        pcl_mesh.polygons.push_back(*p);
+          //  }
+        }
 
 
     }
