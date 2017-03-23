@@ -17,7 +17,7 @@
 #include <objrec_ros_integration/FindObjects.h>
 #include <scene_completion/SceneCompletionConfig.h>
 #include <scene_completion/CompleteSceneAction.h>
-//#include <scene_completion/C
+#include <scene_completion/CompletePartialCloudAction.h>
 #include <actionlib/server/simple_action_server.h>
 #include <actionlib/client/simple_action_client.h>
 
@@ -51,7 +51,7 @@
     //tf::TransformListener listener_;
 
     actionlib::SimpleActionServer<scene_completion::CompleteSceneAction> as_;
-    //actionlib::SimpleActionClient<scene_completion::C
+    actionlib::SimpleActionClient<scene_completion::CompletePartialCloudAction> client;
 
     std::string filtered_cloud_topic;
     int n_clouds_per_recognition;
@@ -63,7 +63,7 @@
     // Mutex for managing buffery synchronization
     boost::mutex buffer_mutex_;
     std::list<boost::shared_ptr<pcl::PointCloud<pcl::PointXYZRGB> > > clouds_;
-
+    shape_msgs::Mesh point_cloud_to_mesh(pcl::PointCloud<pcl::PointXYZRGB>::Ptr point_cloud_cluster);
   };
 
 #endif // ifndef __SCENE_COMPLETION_NODE_H

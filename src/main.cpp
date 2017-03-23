@@ -3,7 +3,7 @@
 
 int main(int argc, char** argv) {
 
-  ros::init(argc,argv,"objrec_node");
+  ros::init(argc,argv,"scene_completion");
 
   SceneCompletionNode *node = new SceneCompletionNode();
 

@@ -5,7 +5,7 @@ project(scene_completion)
 ## if COMPONENTS list like find_package(catkin REQUIRED COMPONENTS xyz)
 ## is used, also find other catkin packages
 find_package(catkin REQUIRED COMPONENTS actionlib actionlib_msgs geometry_msgs message_generation
-dynamic_reconfigure shape_msgs)
+dynamic_reconfigure shape_msgs sensor_msgs)
 
 ## System dependencies are found with CMake's conventions
 find_package(Boost REQUIRED COMPONENTS system thread)
@@ -60,6 +60,7 @@ find_package(PCL REQUIRED)
 add_action_files(
    FILES
    CompleteScene.action
+   CompletePartialCloud.action
 )
 
 ## Generate added messages and services with any dependencies listed here
@@ -67,6 +68,7 @@ generate_messages(
    DEPENDENCIES
    std_msgs  
    shape_msgs
+   sensor_msgs
    actionlib_msgs
  )
 
