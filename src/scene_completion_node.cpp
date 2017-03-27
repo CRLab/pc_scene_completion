@@ -60,6 +60,14 @@ void SceneCompletionNode::reconfigure_cb(scene_completion::SceneCompletionConfig
 {
     //change any member vars here
     n_clouds_per_recognition = config.n_clouds_per_recognition;
+    cluster_tolerance = config.cluster_tolerance;
+    min_cluster_size = config.min_cluster_size;
+    max_cluster_size = config.max_cluster_size;
+
+    world_frame = config.world_frame; // std::string("/world"); //TODO MAKE DYNAMIC  RECONFIGURE
+    camera_frame = config.camera_frame; // std::string("/head_camera_depth_optical_frame"); //TODO MAKE DYNAMIC  RECONFIGURE
+
+
 }
 
 
@@ -98,9 +106,9 @@ void SceneCompletionNode::executeCB(const scene_completion::CompleteSceneGoalCon
 
     std::vector<pcl::PointIndices> cluster_indices;
     pcl::EuclideanClusterExtraction<pcl::PointXYZRGB> ec;
-    ec.setClusterTolerance (0.02); // 2cm  //TODO MAKE DYNAMIC  RECONFIGURE
-    ec.setMinClusterSize (100);//TODO MAKE DYNAMIC  RECONFIGURE
-    ec.setMaxClusterSize (25000000);//TODO MAKE DYNAMIC  RECONFIGURE
+    ec.setClusterTolerance (cluster_tolerance); // 2cm  
+    ec.setMinClusterSize (min_cluster_size);
+    ec.setMaxClusterSize (max_cluster_size);
     ec.setSearchMethod (tree);
     ec.setInputCloud (cloud_full);
     ec.extract (cluster_indices);
@@ -197,8 +205,8 @@ void SceneCompletionNode::point_cloud_to_mesh(pcl::PointCloud<pcl::PointXYZRGB>:
     //lets put it in world frame, so that we can find the lowest point in the z world direction
     pcl::PointCloud<pcl::PointXYZRGB>::Ptr partial_vertices_in_world_frame(new pcl::PointCloud<pcl::PointXYZRGB>());
 
-    std::string world_frame= std::string("/world"); //TODO MAKE DYNAMIC  RECONFIGURE
-    std::string camera_frame= std::string("/head_camera_depth_optical_frame"); //TODO MAKE DYNAMIC  RECONFIGURE
+    // std::string world_frame= std::string("/world"); //TODO MAKE DYNAMIC  RECONFIGURE
+    // std::string camera_frame= std::string("/head_camera_depth_optical_frame"); //TODO MAKE DYNAMIC  RECONFIGURE
     tf::TransformListener tf_listener;
 
     partial_vertices_in_camera_frame->header.frame_id = camera_frame.c_str();

@@ -56,6 +56,8 @@
     std::string filtered_cloud_topic;
     int n_clouds_per_recognition;
     int partial_mesh_count;
+    std::string world_frame;
+    std::string camera_frame;
 
     // ROS Dynamic Reconfigure
     dynamic_reconfigure::Server<scene_completion::SceneCompletionConfig> reconfigure_server_;
