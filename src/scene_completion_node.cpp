@@ -6,13 +6,15 @@
 #include <pcl/surface/marching_cubes_rbf.h>
 #include <pcl/io/pcd_io.h>
 #include <pcl_conversions/pcl_conversions.h>
+#include <pcl_ros/transforms.h>
 
 SceneCompletionNode::SceneCompletionNode(ros::NodeHandle nh) :
     nh_(nh),
     reconfigure_server_(nh),
     n_clouds_per_recognition(5),
     as_(nh_, "SceneCompletion", boost::bind(&SceneCompletionNode::executeCB, this, _1), false),
-    client("object_completion", true)
+    client("object_completion", true),
+    partial_mesh_count(0)
 
 {
     nh.getParam("filtered_cloud_topic", filtered_cloud_topic);// /filter_pc
@@ -103,7 +105,26 @@ void SceneCompletionNode::executeCB(const scene_completion::CompleteSceneGoalCon
     ec.setInputCloud (cloud_full);
     ec.extract (cluster_indices);
 
+//    tf::TransformListener listener;
+//    tf::StampedTransform transform;
 
+//    std::string world_frame= "/world"; //TODO MAKE DYNAMIC  RECONFIGURE
+//    std::string camera_frame= "/world"; //TODO MAKE DYNAMIC  RECONFIGURE
+
+//    try{
+//      listener.lookupTransform(world_frame.c_str(), camera_frame.c_str(),
+//                               ros::Time(0), transform);
+//    }
+//    catch (tf::TransformException ex){
+//      ROS_ERROR("%s",ex.what());
+//      ros::Duration(1.0).sleep();
+//    }
+
+//    ROS_DEBUG("Waiting for world Transform");
+//    ROS_DEBUG("Looking up Transform");
+//    ros::Time now = ros::Time::now();
+//    tf_listener->waitForTransform (output_frame_id, frame_id, now, ros::Duration(2.0));
+//    tf_listener->lookupTransform (output_frame_id, frame_id, now, transform);
 
     for (std::vector<pcl::PointIndices>::const_iterator it = cluster_indices.begin (); it != cluster_indices.end (); ++it)
     {
@@ -122,7 +143,13 @@ void SceneCompletionNode::executeCB(const scene_completion::CompleteSceneGoalCon
         //This is a simple partial view to mesh
         //RUN each cloud_cluster through marching cubes
         //pointcloud -> mesh
-        result.meshes.push_back(point_cloud_to_mesh(cloud_cluster));
+        geometry_msgs::PoseStamped pose_stamped;
+        shape_msgs::Mesh mesh;
+
+        point_cloud_to_mesh(cloud_cluster, mesh, pose_stamped);
+
+        result.meshes.push_back(mesh);
+        result.poses.push_back(pose_stamped);
 
 
     }
@@ -133,7 +160,8 @@ void SceneCompletionNode::executeCB(const scene_completion::CompleteSceneGoalCon
 }
 
 
-shape_msgs::Mesh SceneCompletionNode::point_cloud_to_mesh(pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud) {
+void SceneCompletionNode::point_cloud_to_mesh(pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud,
+                                                          shape_msgs::Mesh &mesh, geometry_msgs::PoseStamped  &pose_stamped ) {
     // TODO RUN cluster through marching cubes
 
 
@@ -153,72 +181,90 @@ shape_msgs::Mesh SceneCompletionNode::point_cloud_to_mesh(pcl::PointCloud<pcl::P
     client.sendGoalAndWait(goal);
     scene_completion::CompletePartialCloudResultConstPtr result = client.getResult();
 
+    //We have a mesh with an points in the camera frame
+    pcl::PointCloud<pcl::PointXYZRGB>::Ptr partial_vertices_in_camera_frame(new pcl::PointCloud<pcl::PointXYZRGB>());
+    for(int i =0; i < result->mesh.vertices.size(); i++)
+    {
+        geometry_msgs::Point p = result->mesh.vertices.at(i);
+        pcl::PointXYZRGB pcl_point; // DO I need to do new for every point, or is += on a pointcloud a copy constructor
+        pcl_point.x = p.x;
+        pcl_point.y = p.y;
+        pcl_point.z = p.z;
+        partial_vertices_in_camera_frame->points.push_back(pcl_point);
+    }
+
+    //now we have a pointcloud in camera frame
+    //lets put it in world frame, so that we can find the lowest point in the z world direction
+    pcl::PointCloud<pcl::PointXYZRGB>::Ptr partial_vertices_in_world_frame(new pcl::PointCloud<pcl::PointXYZRGB>());
+
+    std::string world_frame= std::string("/world"); //TODO MAKE DYNAMIC  RECONFIGURE
+    std::string camera_frame= std::string("/head_camera_depth_optical_frame"); //TODO MAKE DYNAMIC  RECONFIGURE
+    tf::TransformListener tf_listener;
+
+    partial_vertices_in_camera_frame->header.frame_id = camera_frame.c_str();
+    ros::Time now = ros::Time::now();
+    tf_listener.waitForTransform (world_frame, camera_frame, now, ros::Duration(2.0));
+
+    pcl_ros::transformPointCloud(world_frame,
+                                 *partial_vertices_in_camera_frame,
+                                 *partial_vertices_in_world_frame,
+                                 tf_listener);
 
 
-    return result->mesh;
+    // Now lets find the centroid in the world frame of reference
+    //and make a new pointcloud with that as the origin
+    pcl::PointCloud<pcl::PointXYZRGB>::Ptr partial_in_object_frame (new pcl::PointCloud<pcl::PointXYZRGB>);
 
-//    // pointcloud -> mesh
-//    pcl::NormalEstimationOMP<pcl::PointXYZRGB, pcl::Normal> ne;
-//    pcl::search::KdTree<pcl::PointXYZRGB>::Ptr tree1 (new pcl::search::KdTree<pcl::PointXYZRGB>);
-//    tree1->setInputCloud (cloud);
-//    ne.setInputCloud (cloud);
-//    ne.setSearchMethod (tree1);
-//    ne.setKSearch (20);
-//    pcl::PointCloud<pcl::Normal>::Ptr normals (new pcl::PointCloud<pcl::Normal>);
-//    ne.compute (*normals);
+    Eigen::Vector4f centroid (0.f, 0.f, 0.f, 1.f);
+    pcl::compute3DCentroid (*partial_vertices_in_world_frame, centroid); centroid.w () = 1.f;
 
-//    // Concatenate the XYZ and normal fields
-//    pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr cloud_with_normals (new pcl::PointCloud<pcl::PointXYZRGBNormal>);
-//    pcl::concatenateFields(*cloud, *normals, *cloud_with_normals);
+    std::cout << "centroid.x(): " << centroid.x() << std::endl;
+    std::cout << "centroid.y(): " << centroid.y() << std::endl;
+    std::cout << "centroid.z(): " << centroid.z() << std::endl;
 
-//    // Create search tree*
-//    pcl::search::KdTree<pcl::PointXYZRGBNormal>::Ptr tree (new pcl::search::KdTree<pcl::PointXYZRGBNormal>);
-//    tree->setInputCloud (cloud_with_normals);
+    pcl::PointCloud<pcl::PointXYZRGB>::iterator p;
+    int num_pts = 0;
+    for (p = partial_vertices_in_world_frame->points.begin(); p < partial_vertices_in_world_frame->points.end(); p++)
+    {
+        pcl::PointXYZRGB *point = new pcl::PointXYZRGB;
 
+        point->x = p->x - centroid.x();
+        point->y = p->y - centroid.y();
+        point->z = p->z;
+        point->r = p->r;
+        point->g = p->g;
+        point->b = p->b;
+        point->a = p->a;
 
+        partial_in_object_frame->points.push_back(*point);
+        num_pts ++;
+    }
+    partial_in_object_frame->width = num_pts;
+    partial_in_object_frame->height = 1;
 
-//    std::cout << "begin marching cubes reconstruction" << std::endl;
+    //now we need to repackage the pointcloud as a mesh
+        for (int i =0 ; i < partial_in_object_frame->size(); i++) {
+            geometry_msgs::Point geom_p_msg;
 
-//    shape_msgs::Mesh mesh_msg;
+            geom_p_msg.x = partial_in_object_frame->at(i).x;
+            geom_p_msg.y = partial_in_object_frame->at(i).y;
+            geom_p_msg.z = partial_in_object_frame->at(i).z;
 
-//    pcl::io::savePCDFileASCII("/home/bo/before_marching_cubes_cloud.pcd", *cloud_with_normals);
-//    return mesh_msg;
+            mesh.vertices.push_back(geom_p_msg);
 
-//    pcl::MarchingCubesRBF<pcl::PointXYZRGBNormal> mc;
-//    pcl::PolygonMesh::Ptr triangles(new pcl::PolygonMesh);
-//    mc.setInputCloud (cloud_with_normals);
-//    mc.setSearchMethod (tree);
-//    mc.reconstruct (*triangles);
+//            result->mesh.vertices.at(i).x = cloud->at(i).x;
+//            result->mesh.vertices.at(i).y = cloud->at(i).y;
+//            result->mesh.vertices.at(i).z = cloud->at(i).z;
+        }
 
+        mesh.triangles = result->mesh.triangles;
 
-
-//    // add each vertices + triangles to result
-
-//    for (int i =0 ; i < cloud->size(); i++) {
-//        geometry_msgs::Point geom_p_msg;
-
-//        geom_p_msg.x = cloud->at(i).x;
-
-//        geom_p_msg.y = cloud->at(i).y;
-//        geom_p_msg.z = cloud->at(i).z;
-
-//        mesh_msg.vertices.push_back(geom_p_msg);
-
-//    }
-
-//    for (int i =0 ; i < triangles->polygons.size(); i++) {
-//        shape_msgs::MeshTriangle t_msg;
-
-//        pcl::Vertices pcl_vertices = triangles->polygons.at(i);
-
-//        t_msg.vertex_indices[0] = pcl_vertices.vertices.at(0);
-//        t_msg.vertex_indices[1] = pcl_vertices.vertices.at(1);
-//        t_msg.vertex_indices[2] = pcl_vertices.vertices.at(2);
-
-//        mesh_msg.triangles.push_back(t_msg);
-
-//    }
-
-//    return mesh_msg;
+    //now we have a mesh with the origin at the center of the base in the world frame of reference
+    //lets get the transform from world to mesh center
+     pose_stamped.header.frame_id = world_frame.c_str();
+     pose_stamped.pose.orientation.w = 1.0;
+     pose_stamped.pose.position.x = centroid.x();
+     pose_stamped.pose.position.y = centroid.y();
+     pose_stamped.pose.position.z = 0; // Todo This will be slightly off due to the foam, feel free to find min point in mesh and use that
 
 }

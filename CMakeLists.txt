@@ -5,7 +5,7 @@ project(scene_completion)
 ## if COMPONENTS list like find_package(catkin REQUIRED COMPONENTS xyz)
 ## is used, also find other catkin packages
 find_package(catkin REQUIRED COMPONENTS actionlib actionlib_msgs geometry_msgs message_generation
-dynamic_reconfigure shape_msgs sensor_msgs)
+dynamic_reconfigure shape_msgs sensor_msgs tf pcl_ros)
 
 ## System dependencies are found with CMake's conventions
 find_package(Boost REQUIRED COMPONENTS system thread)

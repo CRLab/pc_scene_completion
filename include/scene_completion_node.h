@@ -55,6 +55,7 @@
 
     std::string filtered_cloud_topic;
     int n_clouds_per_recognition;
+    int partial_mesh_count;
 
     // ROS Dynamic Reconfigure
     dynamic_reconfigure::Server<scene_completion::SceneCompletionConfig> reconfigure_server_;
@@ -63,7 +64,8 @@
     // Mutex for managing buffery synchronization
     boost::mutex buffer_mutex_;
     std::list<boost::shared_ptr<pcl::PointCloud<pcl::PointXYZRGB> > > clouds_;
-    shape_msgs::Mesh point_cloud_to_mesh(pcl::PointCloud<pcl::PointXYZRGB>::Ptr point_cloud_cluster);
+    void point_cloud_to_mesh(pcl::PointCloud<pcl::PointXYZRGB>::Ptr point_cloud_cluster,
+                                         shape_msgs::Mesh &mesh, geometry_msgs::PoseStamped &pose_stamped );
   };
 
 #endif // ifndef __SCENE_COMPLETION_NODE_H
