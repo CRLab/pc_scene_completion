@@ -11,7 +11,6 @@
 SceneCompletionNode::SceneCompletionNode(ros::NodeHandle nh) :
     nh_(nh),
     reconfigure_server_(nh),
-    n_clouds_per_recognition(5),
     as_(nh_, "SceneCompletion", boost::bind(&SceneCompletionNode::executeCB, this, _1), false),
     client("object_completion", true),
     partial_mesh_count(0)
@@ -19,14 +18,15 @@ SceneCompletionNode::SceneCompletionNode(ros::NodeHandle nh) :
 {
     nh.getParam("filtered_cloud_topic", filtered_cloud_topic);// /filter_pc
 
+    // Set up dynamic reconfigure
+    reconfigure_server_.setCallback(boost::bind(&SceneCompletionNode::reconfigure_cb, this, _1, _2));
+
     // Construct subscribers and publishers
     cloud_sub_ = nh.subscribe("/filtered_pc", 1, &SceneCompletionNode::pcl_cloud_cb, this);
+    //cluster_tolerance = scene_completion::SceneCompletionConfig.n_clouds_per_recognition
 
     //publish object clusters
     foreground_points_pub_ = nh.advertise<pcl::PointCloud<pcl::PointXYZ> >("foreground_points",10);
-
-    // Set up dynamic reconfigure
-    reconfigure_server_.setCallback(boost::bind(&SceneCompletionNode::reconfigure_cb, this, _1, _2));
 
     as_.start();
 

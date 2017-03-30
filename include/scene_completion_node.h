@@ -53,15 +53,23 @@
     actionlib::SimpleActionServer<scene_completion::CompleteSceneAction> as_;
     actionlib::SimpleActionClient<scene_completion::CompletePartialCloudAction> client;
 
+    //topic in which we listen for filtered pointclouds from
+    //this is grabbed from the ros param server.
     std::string filtered_cloud_topic;
-    int n_clouds_per_recognition;
+
+    //counter to keep track of how many objects we have detected so that we can
+    //give them each a unique name "mesh_" + str(partial_mesh_count++)
     int partial_mesh_count;
+
+    int n_clouds_per_recognition;
+    double cluster_tolerance;
+    int min_cluster_size;
+    int max_cluster_size;
     std::string world_frame;
     std::string camera_frame;
 
     // ROS Dynamic Reconfigure
     dynamic_reconfigure::Server<scene_completion::SceneCompletionConfig> reconfigure_server_;
-
 
     // Mutex for managing buffery synchronization
     boost::mutex buffer_mutex_;
