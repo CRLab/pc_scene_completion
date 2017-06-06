@@ -8,6 +8,9 @@
 #include <pcl_conversions/pcl_conversions.h>
 #include <pcl_ros/transforms.h>
 
+#include <iostream>
+#include <pcl/point_types.h>
+
 SceneCompletionNode::SceneCompletionNode(ros::NodeHandle nh) :
     nh_(nh),
     reconfigure_server_(nh),
@@ -52,6 +55,8 @@ void SceneCompletionNode::pcl_cloud_cb(const sensor_msgs::PointCloud2ConstPtr &p
     while(clouds_.size() > (unsigned)n_clouds_per_recognition) {
         clouds_.pop_front();
     }
+
+
 }
 
 
@@ -103,6 +108,12 @@ void SceneCompletionNode::executeCB(const scene_completion::CompleteSceneGoalCon
     //////////////////////////////////////////////////////////////////////////////////////
     pcl::search::KdTree<pcl::PointXYZRGB>::Ptr tree (new pcl::search::KdTree<pcl::PointXYZRGB>);
     tree->setInputCloud (cloud_full);
+
+    //cloud_full is the full point cloud
+    //Save cloud_full to pcd file (absolute path available)
+    //You can view it using pcl_viewer <filename>.pcd
+    // pcl::io::savePCDFileASCII("/home/bo/hand_with_object_pcd.pcd", *cloud_full);
+    // std::cout << "saved point cloud to /home/bo/hand_with_object_pcd.pcd" << std::endl;
 
     std::vector<pcl::PointIndices> cluster_indices;
     pcl::EuclideanClusterExtraction<pcl::PointXYZRGB> ec;
@@ -170,8 +181,6 @@ void SceneCompletionNode::executeCB(const scene_completion::CompleteSceneGoalCon
 
 void SceneCompletionNode::point_cloud_to_mesh(pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud,
                                                           shape_msgs::Mesh &mesh, geometry_msgs::PoseStamped  &pose_stamped ) {
-    // TODO RUN cluster through marching cubes
-
 
 
     client.waitForServer();
