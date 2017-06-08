@@ -14,7 +14,6 @@
 #include <pcl/point_types.h>
 #include <pcl/filters/voxel_grid.h>
 #include <tf/transform_listener.h>
-#include <objrec_ros_integration/FindObjects.h>
 #include <scene_completion/SceneCompletionConfig.h>
 #include <scene_completion/CompleteSceneAction.h>
 #include <scene_completion/CompletePartialCloudAction.h>
@@ -28,9 +27,6 @@
     ~SceneCompletionNode();
 
     //action server callback
-    bool recognizeObjectsCB(objrec_ros_integration::FindObjects::Request &req, objrec_ros_integration::FindObjects::Response &res);
-
-
     void executeCB(const scene_completion::CompleteSceneGoalConstPtr & goal);
 
   private:
