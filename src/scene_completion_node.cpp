@@ -11,27 +11,29 @@
 #include <iostream>
 #include <pcl/point_types.h>
 
-SceneCompletionNode::SceneCompletionNode(ros::NodeHandle nh) :
-    nh_(nh),
-    reconfigure_server_(nh),
-    as_(nh_, "SceneCompletion", boost::bind(&SceneCompletionNode::executeCB, this, _1), false),
-    client("object_completion", true),
+SceneCompletionNode::SceneCompletionNode() :
     partial_mesh_count(0)
 
 {
-    nh.getParam("filtered_cloud_topic", filtered_cloud_topic);// /filter_pc
+    nh_ = std::make_shared<ros::NodeHandle>("scene_completion");
+    nh_->getParam("filtered_cloud_topic", filtered_cloud_topic);// /filter_pc
+    reconfigure_server_ = std::make_shared< dynamic_reconfigure::Server<scene_completion::SceneCompletionConfig> >(*nh_);
 
+    client = std::make_shared< actionlib::SimpleActionClient<scene_completion::CompletePartialCloudAction> >
+        ("object_completion", true);
     // Set up dynamic reconfigure
-    reconfigure_server_.setCallback(boost::bind(&SceneCompletionNode::reconfigure_cb, this, _1, _2));
+    reconfigure_server_->setCallback(boost::bind(&SceneCompletionNode::reconfigure_cb, this, _1, _2));
 
     // Construct subscribers and publishers
-    cloud_sub_ = nh.subscribe("/filtered_pc", 1, &SceneCompletionNode::pcl_cloud_cb, this);
+    cloud_sub_ = nh_->subscribe("/filtered_pc", 1, &SceneCompletionNode::pcl_cloud_cb, this);
     //cluster_tolerance = scene_completion::SceneCompletionConfig.n_clouds_per_recognition
 
     //publish object clusters
-    foreground_points_pub_ = nh.advertise<pcl::PointCloud<pcl::PointXYZ> >("foreground_points",10);
+    foreground_points_pub_ = nh_->advertise<pcl::PointCloud<pcl::PointXYZ> >("foreground_points",10);
 
-    as_.start();
+    as_ = std::make_shared< actionlib::SimpleActionServer<scene_completion::CompleteSceneAction> >
+        (*nh_, "SceneCompletion", boost::bind(&SceneCompletionNode::executeCB, this, _1), false);
+    as_->start();
 
     ROS_INFO("ready to find objects");
     ROS_INFO_STREAM("Constructed SceneCompletionNode.");
@@ -78,9 +80,9 @@ void SceneCompletionNode::reconfigure_cb(scene_completion::SceneCompletionConfig
 
 void SceneCompletionNode::executeCB(const scene_completion::CompleteSceneGoalConstPtr & goal)
 {
-
-    scene_completion::CompleteSceneResult result;
-
+    ROS_INFO("entering SceneCompletionNode::executeCB");
+    result.meshes.clear();
+    result.poses.clear();
 
     //this is the merged set of captured pointclouds
     pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud_full(new pcl::PointCloud<pcl::PointXYZRGB>());
@@ -172,8 +174,8 @@ void SceneCompletionNode::executeCB(const scene_completion::CompleteSceneGoalCon
 
 
     }
-
-    as_.setSucceeded(result);
+    ROS_INFO("scene_completion result completed!! now sending...");
+    as_->setSucceeded(result);
 
 
 }
@@ -183,7 +185,7 @@ void SceneCompletionNode::point_cloud_to_mesh(pcl::PointCloud<pcl::PointXYZRGB>:
                                                           shape_msgs::Mesh &mesh, geometry_msgs::PoseStamped  &pose_stamped ) {
 
 
-    client.waitForServer();
+    client->waitForServer();
     scene_completion::CompletePartialCloudGoal goal;
     sensor_msgs::PointCloud2 cloud_msg;
 
@@ -195,8 +197,8 @@ void SceneCompletionNode::point_cloud_to_mesh(pcl::PointCloud<pcl::PointXYZRGB>:
     goal.partial_cloud = cloud_msg;
 
 
-    client.sendGoalAndWait(goal);
-    scene_completion::CompletePartialCloudResultConstPtr result = client.getResult();
+    client->sendGoalAndWait(goal);
+    scene_completion::CompletePartialCloudResultConstPtr result = client->getResult();
 
     //We have a mesh with an points in the camera frame
     pcl::PointCloud<pcl::PointXYZRGB>::Ptr partial_vertices_in_camera_frame(new pcl::PointCloud<pcl::PointXYZRGB>());

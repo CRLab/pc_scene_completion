@@ -21,10 +21,12 @@
 #include <actionlib/server/simple_action_server.h>
 #include <actionlib/client/simple_action_client.h>
 
+#include <memory>
+
 
   class SceneCompletionNode {
   public:
-    SceneCompletionNode(ros::NodeHandle nh = ros::NodeHandle("~"));
+    SceneCompletionNode();
     ~SceneCompletionNode();
 
     //action server callback
@@ -42,7 +44,8 @@
     void pcl_cloud_cb(const sensor_msgs::PointCloud2ConstPtr &points_msg);
 
     // ROS Structures
-    ros::NodeHandle &nh_;
+    std::shared_ptr<ros::NodeHandle> nh_;
+
     //subscriber to filtered pointcloud
     ros::Subscriber cloud_sub_;
     ros::Publisher objects_pub_;
@@ -50,8 +53,11 @@
     ros::Publisher foreground_points_pub_;
     //tf::TransformListener listener_;
 
-    actionlib::SimpleActionServer<scene_completion::CompleteSceneAction> as_;
-    actionlib::SimpleActionClient<scene_completion::CompletePartialCloudAction> client;
+
+    std::shared_ptr<actionlib::SimpleActionServer<scene_completion::CompleteSceneAction>> as_;
+    std::shared_ptr< actionlib::SimpleActionClient<scene_completion::CompletePartialCloudAction> > client;
+    scene_completion::CompleteSceneResult result;
+
 
     //topic in which we listen for filtered pointclouds from
     //this is grabbed from the ros param server.
@@ -69,7 +75,7 @@
     std::string camera_frame;
 
     // ROS Dynamic Reconfigure
-    dynamic_reconfigure::Server<scene_completion::SceneCompletionConfig> reconfigure_server_;
+    std::shared_ptr< dynamic_reconfigure::Server<scene_completion::SceneCompletionConfig> > reconfigure_server_;
 
     // Mutex for managing buffery synchronization
     boost::mutex buffer_mutex_;

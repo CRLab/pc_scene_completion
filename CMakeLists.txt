@@ -198,3 +198,5 @@ target_link_libraries(scene_completion_node
 
 ## Add folders to be run by python nosetests
 # catkin_add_nosetests(test)
+
+add_definitions(-std=c++11)
