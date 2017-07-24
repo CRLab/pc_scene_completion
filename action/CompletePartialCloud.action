@@ -1,0 +1,7 @@
+#Request
+sensor_msgs/PointCloud2 partial_cloud
+---
+#Result
+shape_msgs/Mesh mesh
+---
+#Feedback
