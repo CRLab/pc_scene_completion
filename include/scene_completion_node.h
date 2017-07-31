@@ -23,7 +23,7 @@
 
   class SceneCompletionNode {
   public:
-    SceneCompletionNode(ros::NodeHandle nh = ros::NodeHandle("~"));
+    SceneCompletionNode(ros::NodeHandle nh = ros::NodeHandle(""));
     ~SceneCompletionNode();
 
     //action server callback
@@ -69,9 +69,12 @@
 
     // Mutex for managing buffery synchronization
     boost::mutex buffer_mutex_;
-    std::list<boost::shared_ptr<pcl::PointCloud<pcl::PointXYZRGB> > > clouds_;
-    void point_cloud_to_mesh(pcl::PointCloud<pcl::PointXYZRGB>::Ptr point_cloud_cluster,
-                                         shape_msgs::Mesh &mesh, geometry_msgs::PoseStamped &pose_stamped );
+    std::list<boost::shared_ptr<pcl::PointCloud<pcl::PointXYZRGB> > > clouds_queue_;
+    void point_cloud_to_mesh(pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud,
+                             Eigen::Matrix4f transformEigen,
+                             shape_msgs::Mesh &meshMsg,
+                             geometry_msgs::PoseStamped  &poseStampedMsg,
+                             sensor_msgs::PointCloud2 &partialCloudMsg);
   };
 
 #endif // ifndef __SCENE_COMPLETION_NODE_H

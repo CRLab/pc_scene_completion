@@ -8,6 +8,7 @@
 #include <pcl_conversions/pcl_conversions.h>
 #include <pcl_ros/transforms.h>
 
+
 #include <iostream>
 #include <pcl/point_types.h>
 
@@ -20,8 +21,8 @@ SceneCompletionNode::SceneCompletionNode(ros::NodeHandle nh) :
 
 {
     nh.getParam("filtered_cloud_topic", filtered_cloud_topic);// /filter_pc
-    nh.getParam("camera_frame", filtered_cloud_topic);// /filter_pc
-    nh.getParam("world_frame", filtered_cloud_topic);// /filter_pc
+    nh.getParam("camera_frame", camera_frame);
+    nh.getParam("world_frame", world_frame);
 
     // Set up dynamic reconfigure
     reconfigure_server_.setCallback(boost::bind(&SceneCompletionNode::reconfigure_cb, this, _1, _2));
@@ -35,12 +36,19 @@ SceneCompletionNode::SceneCompletionNode(ros::NodeHandle nh) :
 
     as_.start();
 
-    ROS_INFO("ready to find objects");
-    ROS_INFO_STREAM("Constructed SceneCompletionNode.");
-
+    ROS_INFO("SceneCompletionNode Initialized: ");
+    ROS_INFO_STREAM("filtered_cloud_topic: " << filtered_cloud_topic);
+    ROS_INFO_STREAM("camera_frame: " << camera_frame);
+    ROS_INFO_STREAM("world_frame: " << world_frame);
 }
 
 
+//!
+//! \brief SceneCompletionNode::pcl_cloud_cb
+//! \param points_msg
+//!
+//! This function takes a new point cloud message and addes it to the clouds_queue.
+//! If the queue is already at its max size, then the oldest cloud is removed.
 void SceneCompletionNode::pcl_cloud_cb(const sensor_msgs::PointCloud2ConstPtr &points_msg)
 {
     // Lock the buffer mutex while we're capturing a new point cloud
@@ -51,14 +59,12 @@ void SceneCompletionNode::pcl_cloud_cb(const sensor_msgs::PointCloud2ConstPtr &p
     pcl::fromROSMsg(*points_msg, *cloud);
 
     // Store the cloud
-    clouds_.push_back(cloud);
+    clouds_queue_.push_back(cloud);
 
     // Increment the cloud index
-    while(clouds_.size() > (unsigned)n_clouds_per_recognition) {
-        clouds_.pop_front();
+    while(clouds_queue_.size() > (unsigned)n_clouds_per_recognition) {
+        clouds_queue_.pop_front();
     }
-
-
 }
 
 
@@ -86,7 +92,7 @@ void SceneCompletionNode::executeCB(const pc_pipeline_msgs::CompleteSceneGoalCon
 
      //We need to wait until n_clouds_per_recognition clouds have been received
      ros::Rate warn_rate(1.0);
-     if(clouds_.empty()) {
+     if(clouds_queue_.empty()) {
          ROS_WARN("Pointcloud buffer is empty!");
          warn_rate.sleep();
     }
@@ -95,8 +101,8 @@ void SceneCompletionNode::executeCB(const pc_pipeline_msgs::CompleteSceneGoalCon
     boost::mutex::scoped_lock buffer_lock(buffer_mutex_);
 
     //merge all clouds together
-    for(std::list<boost::shared_ptr<pcl::PointCloud<pcl::PointXYZRGB> > >::const_iterator it = clouds_.begin();
-                    it != clouds_.end();
+    for(std::list<boost::shared_ptr<pcl::PointCloud<pcl::PointXYZRGB> > >::const_iterator it = clouds_queue_.begin();
+                    it != clouds_queue_.end();
                     ++it)
             {
                 *cloud_full += *(*it);
@@ -108,12 +114,6 @@ void SceneCompletionNode::executeCB(const pc_pipeline_msgs::CompleteSceneGoalCon
     pcl::search::KdTree<pcl::PointXYZRGB>::Ptr tree (new pcl::search::KdTree<pcl::PointXYZRGB>);
     tree->setInputCloud (cloud_full);
 
-    //cloud_full is the full point cloud
-    //Save cloud_full to pcd file (absolute path available)
-    //You can view it using pcl_viewer <filename>.pcd
-    // pcl::io::savePCDFileASCII("/home/bo/hand_with_object_pcd.pcd", *cloud_full);
-    // std::cout << "saved point cloud to /home/bo/hand_with_object_pcd.pcd" << std::endl;
-
     ROS_INFO("Extracting Clusters");
     std::vector<pcl::PointIndices> cluster_indices;
     pcl::EuclideanClusterExtraction<pcl::PointXYZRGB> ec;
@@ -124,26 +124,19 @@ void SceneCompletionNode::executeCB(const pc_pipeline_msgs::CompleteSceneGoalCon
     ec.setInputCloud (cloud_full);
     ec.extract (cluster_indices);
 
-//    tf::TransformListener listener;
-//    tf::StampedTransform transform;
+    ROS_INFO("Looking up %s to %s transform",world_frame.c_str(), camera_frame.c_str());
+    tf::TransformListener listener;
+    tf::StampedTransform transformMsg;
+    Eigen::Matrix4f transformEigen = Eigen::Matrix4f::Identity ();
 
-//    std::string world_frame= "/world"; //TODO MAKE DYNAMIC  RECONFIGURE
-//    std::string camera_frame= "/world"; //TODO MAKE DYNAMIC  RECONFIGURE
 
-//    try{
-//      listener.lookupTransform(world_frame.c_str(), camera_frame.c_str(),
-//                               ros::Time(0), transform);
-//    }
-//    catch (tf::TransformException ex){
-//      ROS_ERROR("%s",ex.what());
-//      ros::Duration(1.0).sleep();
-//    }
+    listener.waitForTransform(world_frame, camera_frame,
+                              ros::Time::now(), ros::Duration(3.0));
+    listener.lookupTransform(world_frame, camera_frame,
+                             ros::Time(0), transformMsg);
 
-//    ROS_DEBUG("Waiting for world Transform");
-//    ROS_DEBUG("Looking up Transform");
-//    ros::Time now = ros::Time::now();
-//    tf_listener->waitForTransform (output_frame_id, frame_id, now, ros::Duration(2.0));
-//    tf_listener->lookupTransform (output_frame_id, frame_id, now, transform);
+    //this is the transform from camera to world
+    pcl_ros::transformAsMatrix(transformMsg, transformEigen);
 
     for (std::vector<pcl::PointIndices>::const_iterator it = cluster_indices.begin (); it != cluster_indices.end (); ++it)
     {
@@ -156,28 +149,16 @@ void SceneCompletionNode::executeCB(const pc_pipeline_msgs::CompleteSceneGoalCon
         cloud_cluster->height = 1;
         cloud_cluster->is_dense = true;
 
-
-        //TODO MAKE DYNAMIC  RECONFIGURE
-        //if we are running shape completion, then we
-        //This is a simple partial view to mesh
-        //RUN each cloud_cluster through marching cubes
-        //pointcloud -> mesh
-        geometry_msgs::PoseStamped pose_stamped;
-        shape_msgs::Mesh mesh;
+        geometry_msgs::PoseStamped poseStampedMsg;
+        shape_msgs::Mesh meshMsg;
+        sensor_msgs::PointCloud2 partialCloudMsg;
 
 	ROS_INFO("Calling point_cloud_to_mesh");
-        point_cloud_to_mesh(cloud_cluster, mesh, pose_stamped);
+	point_cloud_to_mesh(cloud_cluster, transformEigen, meshMsg, poseStampedMsg, partialCloudMsg);
 
-	sensor_msgs::PointCloud2 cloud_msg;
-	pcl::PCLPointCloud2 cloud_pc2;
-	pcl::toPCLPointCloud2(*cloud_cluster, cloud_pc2);
-	pcl_conversions::fromPCL(cloud_pc2, cloud_msg);
-
-	result.partial_views.push_back(cloud_msg);
-        result.meshes.push_back(mesh);
-        result.poses.push_back(pose_stamped);
-
-
+	result.partial_views.push_back(partialCloudMsg);
+	result.meshes.push_back(meshMsg);
+	result.poses.push_back(poseStampedMsg);
     }
 
     as_.setSucceeded(result);
@@ -187,26 +168,28 @@ void SceneCompletionNode::executeCB(const pc_pipeline_msgs::CompleteSceneGoalCon
 
 
 void SceneCompletionNode::point_cloud_to_mesh(pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud,
-                                                          shape_msgs::Mesh &mesh, geometry_msgs::PoseStamped  &pose_stamped ) {
+                                              Eigen::Matrix4f transformEigen,
+                                              shape_msgs::Mesh &meshMsg,
+                                              geometry_msgs::PoseStamped  &poseStampedMsg,
+                                              sensor_msgs::PointCloud2 &partialCloudMsg ) {
 
+    //convert pointcloud to ROS message
+    pcl::PCLPointCloud2 partialCloudpc2CameraFrame;
+    pcl::toPCLPointCloud2(*cloud, partialCloudpc2CameraFrame);
+    sensor_msgs::PointCloud2 partialCloudMsgCameraFrame;
+    pcl_conversions::fromPCL(partialCloudpc2CameraFrame, partialCloudMsgCameraFrame);
 
-    client.waitForServer();
+    //build up complete object goal
     pc_pipeline_msgs::CompletePartialCloudGoal goal;
-    sensor_msgs::PointCloud2 cloud_msg;
+    goal.partial_cloud = partialCloudMsgCameraFrame;
 
-    pcl::PCLPointCloud2 cloud_pc2;
-    pcl::toPCLPointCloud2(*cloud, cloud_pc2);
-
-    pcl_conversions::fromPCL(cloud_pc2, cloud_msg);
-
-    goal.partial_cloud = cloud_msg;
-
-
+    //send goal to complete object client and get result back
+    client.waitForServer();
     client.sendGoalAndWait(goal);
     pc_pipeline_msgs::CompletePartialCloudResultConstPtr result = client.getResult();
 
     //We have a mesh with an points in the camera frame
-    pcl::PointCloud<pcl::PointXYZRGB>::Ptr partial_vertices_in_camera_frame(new pcl::PointCloud<pcl::PointXYZRGB>());
+    pcl::PointCloud<pcl::PointXYZRGB>::Ptr meshVerticesCameraFrame(new pcl::PointCloud<pcl::PointXYZRGB>());
     for(int i =0; i < result->mesh.vertices.size(); i++)
     {
         geometry_msgs::Point p = result->mesh.vertices.at(i);
@@ -214,81 +197,59 @@ void SceneCompletionNode::point_cloud_to_mesh(pcl::PointCloud<pcl::PointXYZRGB>:
         pcl_point.x = p.x;
         pcl_point.y = p.y;
         pcl_point.z = p.z;
-        partial_vertices_in_camera_frame->points.push_back(pcl_point);
+        meshVerticesCameraFrame->points.push_back(pcl_point);
     }
 
     //now we have a pointcloud in camera frame
     //lets put it in world frame, so that we can find the lowest point in the z world direction
-    pcl::PointCloud<pcl::PointXYZRGB>::Ptr partial_vertices_in_world_frame(new pcl::PointCloud<pcl::PointXYZRGB>());
+    pcl::PointCloud<pcl::PointXYZRGB>::Ptr meshVerticesWorldFrame(new pcl::PointCloud<pcl::PointXYZRGB>());
+    pcl::transformPointCloud(*meshVerticesCameraFrame, *meshVerticesWorldFrame, transformEigen);
 
-    // std::string world_frame= std::string("/world"); //TODO MAKE DYNAMIC  RECONFIGURE
-    // std::string camera_frame= std::string("/head_camera_depth_optical_frame"); //TODO MAKE DYNAMIC  RECONFIGURE
-    tf::TransformListener tf_listener;
-
-    partial_vertices_in_camera_frame->header.frame_id = camera_frame.c_str();
-    ros::Time now = ros::Time::now();
-    tf_listener.waitForTransform (world_frame, camera_frame, now, ros::Duration(2.0));
-
-    pcl_ros::transformPointCloud(world_frame,
-                                 *partial_vertices_in_camera_frame,
-                                 *partial_vertices_in_world_frame,
-                                 tf_listener);
-
-
-    // Now lets find the centroid in the world frame of reference
-    //and make a new pointcloud with that as the origin
-    pcl::PointCloud<pcl::PointXYZRGB>::Ptr partial_in_object_frame (new pcl::PointCloud<pcl::PointXYZRGB>);
+    //now we have a pointcloud in camera frame
+    //lets put it in world frame, so that we can find the lowest point in the z world direction
+    pcl::PointCloud<pcl::PointXYZRGB>::Ptr partialCloudWorldFrame(new pcl::PointCloud<pcl::PointXYZRGB>());
+    pcl::transformPointCloud(*cloud, *partialCloudWorldFrame, transformEigen);
 
     Eigen::Vector4f centroid (0.f, 0.f, 0.f, 1.f);
-    pcl::compute3DCentroid (*partial_vertices_in_world_frame, centroid); centroid.w () = 1.f;
-
+    pcl::compute3DCentroid (*meshVerticesWorldFrame, centroid); centroid.w () = 1.f;
     ROS_INFO_STREAM("centroid.x(): " << centroid.x() << std::endl);
     ROS_INFO_STREAM("centroid.y(): " << centroid.y() << std::endl);
     ROS_INFO_STREAM("centroid.z(): " << centroid.z() << std::endl);
+    Eigen::Matrix4f world2Mesh = Eigen::Matrix4f::Identity ();
+    world2Mesh(0,3) = -centroid.x();
+    world2Mesh(1,3) = -centroid.y();
+    world2Mesh(2,3) = 0;
+    world2Mesh(3,3) = 1;
+    ROS_INFO_STREAM( "World2Mesh" << world2Mesh << std::endl);
 
-    pcl::PointCloud<pcl::PointXYZRGB>::iterator p;
-    int num_pts = 0;
-    for (p = partial_vertices_in_world_frame->points.begin(); p < partial_vertices_in_world_frame->points.end(); p++)
-    {
-        pcl::PointXYZRGB *point = new pcl::PointXYZRGB;
-
-        point->x = p->x - centroid.x();
-        point->y = p->y - centroid.y();
-        point->z = p->z;
-        point->r = p->r;
-        point->g = p->g;
-        point->b = p->b;
-        point->a = p->a;
-
-        partial_in_object_frame->points.push_back(*point);
-        num_pts ++;
-    }
-    partial_in_object_frame->width = num_pts;
-    partial_in_object_frame->height = 1;
+    //from world frame to mesh frame.
+    pcl::PointCloud<pcl::PointXYZRGB>::Ptr meshVerticesMeshFrame(new pcl::PointCloud<pcl::PointXYZRGB>());
+    pcl::transformPointCloud(*meshVerticesWorldFrame, *meshVerticesMeshFrame, world2Mesh);
+    pcl::PointCloud<pcl::PointXYZRGB>::Ptr partialCloudMeshFrame(new pcl::PointCloud<pcl::PointXYZRGB>());
+    pcl::transformPointCloud(*partialCloudWorldFrame, *partialCloudMeshFrame, world2Mesh);
 
     //now we need to repackage the pointcloud as a mesh
-        for (int i =0 ; i < partial_in_object_frame->size(); i++) {
-            geometry_msgs::Point geom_p_msg;
+    for (int i =0 ; i < meshVerticesMeshFrame->size(); i++) {
+        geometry_msgs::Point geom_p_msg;
 
-            geom_p_msg.x = partial_in_object_frame->at(i).x;
-            geom_p_msg.y = partial_in_object_frame->at(i).y;
-            geom_p_msg.z = partial_in_object_frame->at(i).z;
+        geom_p_msg.x = meshVerticesMeshFrame->at(i).x;
+        geom_p_msg.y = meshVerticesMeshFrame->at(i).y;
+        geom_p_msg.z = meshVerticesMeshFrame->at(i).z;
 
-            mesh.vertices.push_back(geom_p_msg);
+        meshMsg.vertices.push_back(geom_p_msg);
+    }
 
-//            result->mesh.vertices.at(i).x = cloud->at(i).x;
-//            result->mesh.vertices.at(i).y = cloud->at(i).y;
-//            result->mesh.vertices.at(i).z = cloud->at(i).z;
-        }
+     meshMsg.triangles = result->mesh.triangles;
 
-        mesh.triangles = result->mesh.triangles;
+     pcl::toROSMsg(*partialCloudMeshFrame, partialCloudMsg);
 
     //now we have a mesh with the origin at the center of the base in the world frame of reference
     //lets get the transform from world to mesh center
-     pose_stamped.header.frame_id = world_frame.c_str();
-     pose_stamped.pose.orientation.w = 1.0;
-     pose_stamped.pose.position.x = centroid.x();
-     pose_stamped.pose.position.y = centroid.y();
-     pose_stamped.pose.position.z = 0; // Todo This will be slightly off due to the foam, feel free to find min point in mesh and use that
+     ROS_INFO_STREAM("OBJECT POSE IN FRAME: " << world_frame << std::endl);
+     poseStampedMsg.header.frame_id = world_frame;
+     poseStampedMsg.pose.orientation.w = 1.0;
+     poseStampedMsg.pose.position.x = centroid.x();
+     poseStampedMsg.pose.position.y = centroid.y();
+     poseStampedMsg.pose.position.z = 0;
 
 }
