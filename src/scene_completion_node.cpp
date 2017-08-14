@@ -16,7 +16,6 @@ SceneCompletionNode::SceneCompletionNode(ros::NodeHandle nh) :
     nh_(nh),
     reconfigure_server_(nh),
     as_(nh_, "SceneCompletion", boost::bind(&SceneCompletionNode::executeCB, this, _1), false),
-    client("object_completion", true),
     partial_mesh_count(0)
 
 {
@@ -138,6 +137,8 @@ void SceneCompletionNode::executeCB(const pc_pipeline_msgs::CompleteSceneGoalCon
     //this is the transform from camera to world
     pcl_ros::transformAsMatrix(transformMsg, transformEigen);
 
+    actionlib::SimpleActionClient<pc_pipeline_msgs::CompletePartialCloudAction> client(goal->object_completion_topic, true);
+    
     for (std::vector<pcl::PointIndices>::const_iterator it = cluster_indices.begin (); it != cluster_indices.end (); ++it)
     {
         //this is the set of points corresponding to the visible region of a single object
@@ -154,12 +155,13 @@ void SceneCompletionNode::executeCB(const pc_pipeline_msgs::CompleteSceneGoalCon
         sensor_msgs::PointCloud2 partialCloudMsg;
 
 	ROS_INFO("Calling point_cloud_to_mesh");
-	point_cloud_to_mesh(cloud_cluster, transformEigen, meshMsg, poseStampedMsg, partialCloudMsg);
+	point_cloud_to_mesh(cloud_cluster, transformEigen, client, meshMsg, poseStampedMsg, partialCloudMsg);
 
 	result.partial_views.push_back(partialCloudMsg);
 	result.meshes.push_back(meshMsg);
 	result.poses.push_back(poseStampedMsg);
     }
+
 
     as_.setSucceeded(result);
 
@@ -169,6 +171,7 @@ void SceneCompletionNode::executeCB(const pc_pipeline_msgs::CompleteSceneGoalCon
 
 void SceneCompletionNode::point_cloud_to_mesh(pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud,
                                               Eigen::Matrix4f transformEigen,
+					      actionlib::SimpleActionClient<pc_pipeline_msgs::CompletePartialCloudAction> &client,
                                               shape_msgs::Mesh &meshMsg,
                                               geometry_msgs::PoseStamped  &poseStampedMsg,
                                               sensor_msgs::PointCloud2 &partialCloudMsg ) {

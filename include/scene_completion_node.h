@@ -47,7 +47,6 @@
     //tf::TransformListener listener_;
 
     actionlib::SimpleActionServer<pc_pipeline_msgs::CompleteSceneAction> as_;
-    actionlib::SimpleActionClient<pc_pipeline_msgs::CompletePartialCloudAction> client;
 
     //topic in which we listen for filtered pointclouds from
     //this is grabbed from the ros param server.
@@ -72,6 +71,7 @@
     std::list<boost::shared_ptr<pcl::PointCloud<pcl::PointXYZRGB> > > clouds_queue_;
     void point_cloud_to_mesh(pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud,
                              Eigen::Matrix4f transformEigen,
+			     actionlib::SimpleActionClient<pc_pipeline_msgs::CompletePartialCloudAction> &client,
                              shape_msgs::Mesh &meshMsg,
                              geometry_msgs::PoseStamped  &poseStampedMsg,
                              sensor_msgs::PointCloud2 &partialCloudMsg);
