@@ -5,7 +5,7 @@ project(pc_scene_completion)
 ## if COMPONENTS list like find_package(catkin REQUIRED COMPONENTS xyz)
 ## is used, also find other catkin packages
 find_package(catkin REQUIRED COMPONENTS actionlib actionlib_msgs geometry_msgs message_generation
-dynamic_reconfigure shape_msgs sensor_msgs tf pcl_ros pc_pipeline_msgs)
+dynamic_reconfigure shape_msgs sensor_msgs tf pcl_ros pc_pipeline_msgs roscpp)
 
 ## System dependencies are found with CMake's conventions
 find_package(Boost REQUIRED COMPONENTS system thread)
@@ -116,6 +116,7 @@ catkin_package(
 include_directories(include
     ${PCL_INCLUDE_DIRS}
     ${Boost_INCLUDE_DIRS}
+    ${catkin_INCLUDE_DIRS}
 )
 
 link_directories(${PCL_LIBRARY_DIRS})
