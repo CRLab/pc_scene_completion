@@ -16,6 +16,9 @@ SceneCompletionNode::SceneCompletionNode(ros::NodeHandle nh) :
     nh_(nh),
     reconfigure_server_(nh),
     as_(nh_, "SceneCompletion", boost::bind(&SceneCompletionNode::executeCB, this, _1), false),
+    depth_cnn_client("/depth/object_completion", true),
+    depth_tactile_cnn_client("/depth_tactile/object_completion", true),
+    partial_client("/partial_object_completion", true),
     partial_mesh_count(0)
 
 {
@@ -24,15 +27,11 @@ SceneCompletionNode::SceneCompletionNode(ros::NodeHandle nh) :
     nh.getParam("world_frame", world_frame);
 
     // Set up dynamic reconfigure
-    reconfigure_server_.setCallback(boost::bind(&SceneCompletionNode::reconfigure_cb, this, _1, _2));
+    reconfigure_server_.setCallback(boost::bind(&SceneCompletionNode::reconfigure_cb, this, _1, _2));    
 
     // Construct subscribers and publishers
-    cloud_sub_ = nh.subscribe("/filtered_pc", 1, &SceneCompletionNode::pcl_cloud_cb, this);
-    //cluster_tolerance = pc_scene_completion::SceneCompletionConfig.n_clouds_per_recognition
-
-    //publish object clusters
-    foreground_points_pub_ = nh.advertise<pcl::PointCloud<pcl::PointXYZ> >("foreground_points",10);
-
+    cloud_sub_ = nh.subscribe(filtered_cloud_topic, 1, &SceneCompletionNode::pcl_cloud_cb, this);
+    
     as_.start();
 
     ROS_INFO("SceneCompletionNode Initialized: ");
@@ -84,7 +83,6 @@ void SceneCompletionNode::executeCB(const pc_pipeline_msgs::CompleteSceneGoalCon
     ROS_INFO("received new CompleteSceneGoal");
     pc_pipeline_msgs::CompleteSceneResult result;
 
-
     ROS_INFO("Merging PointClouds");
     //this is the merged set of captured pointclouds
     pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud_full(new pcl::PointCloud<pcl::PointXYZRGB>());
@@ -101,11 +99,11 @@ void SceneCompletionNode::executeCB(const pc_pipeline_msgs::CompleteSceneGoalCon
 
     //merge all clouds together
     for(std::list<boost::shared_ptr<pcl::PointCloud<pcl::PointXYZRGB> > >::const_iterator it = clouds_queue_.begin();
-                    it != clouds_queue_.end();
-                    ++it)
-            {
-                *cloud_full += *(*it);
-    }
+	it != clouds_queue_.end();
+	++it)
+      {
+	*cloud_full += *(*it);
+      }
 
     //////////////////////////////////////////////////////////////////////////////////////
     //extract clusters from cloud
@@ -136,8 +134,6 @@ void SceneCompletionNode::executeCB(const pc_pipeline_msgs::CompleteSceneGoalCon
 
     //this is the transform from camera to world
     pcl_ros::transformAsMatrix(transformMsg, transformEigen);
-
-    actionlib::SimpleActionClient<pc_pipeline_msgs::CompletePartialCloudAction> client(goal->object_completion_topic, true);
     
     for (std::vector<pcl::PointIndices>::const_iterator it = cluster_indices.begin (); it != cluster_indices.end (); ++it)
     {
@@ -155,12 +151,14 @@ void SceneCompletionNode::executeCB(const pc_pipeline_msgs::CompleteSceneGoalCon
         sensor_msgs::PointCloud2 partialCloudMsg;
 
 	ROS_INFO("Calling point_cloud_to_mesh");
-	point_cloud_to_mesh(cloud_cluster, transformEigen, client, meshMsg, poseStampedMsg, partialCloudMsg);
+	point_cloud_to_mesh(cloud_cluster, transformEigen, goal->object_completion_topic, meshMsg, poseStampedMsg, partialCloudMsg);
 
 	result.partial_views.push_back(partialCloudMsg);
 	result.meshes.push_back(meshMsg);
 	result.poses.push_back(poseStampedMsg);
     }
+
+    
 
 
     as_.setSucceeded(result);
@@ -171,7 +169,7 @@ void SceneCompletionNode::executeCB(const pc_pipeline_msgs::CompleteSceneGoalCon
 
 void SceneCompletionNode::point_cloud_to_mesh(pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud,
                                               Eigen::Matrix4f transformEigen,
-					      actionlib::SimpleActionClient<pc_pipeline_msgs::CompletePartialCloudAction> &client,
+					      std::string object_completion_topic,
                                               shape_msgs::Mesh &meshMsg,
                                               geometry_msgs::PoseStamped  &poseStampedMsg,
                                               sensor_msgs::PointCloud2 &partialCloudMsg ) {
@@ -186,10 +184,27 @@ void SceneCompletionNode::point_cloud_to_mesh(pcl::PointCloud<pcl::PointXYZRGB>:
     pc_pipeline_msgs::CompletePartialCloudGoal goal;
     goal.partial_cloud = partialCloudMsgCameraFrame;
 
+    actionlib::SimpleActionClient<pc_pipeline_msgs::CompletePartialCloudAction>* client;
+    if(object_completion_topic == "depth")
+      {
+	ROS_INFO_STREAM("object_completion_topic: " << object_completion_topic << " 0 " << std::endl);
+	client = &depth_cnn_client;
+      }
+    else if (object_completion_topic=="depth_tactile")
+      {
+	ROS_INFO_STREAM("object_completion_topic: " << object_completion_topic << " 1 " << std::endl);
+	client = &depth_tactile_cnn_client;
+      }
+    else{
+      ROS_INFO_STREAM("object_completion_topic: " << object_completion_topic << " 2 " << std::endl);
+  
+      client = &partial_client;
+    }
+    
     //send goal to complete object client and get result back
-    client.waitForServer();
-    client.sendGoalAndWait(goal);
-    pc_pipeline_msgs::CompletePartialCloudResultConstPtr result = client.getResult();
+    client->waitForServer();
+    client->sendGoalAndWait(goal);
+    pc_pipeline_msgs::CompletePartialCloudResultConstPtr result = client->getResult();
 
     //We have a mesh with an points in the camera frame
     pcl::PointCloud<pcl::PointXYZRGB>::Ptr meshVerticesCameraFrame(new pcl::PointCloud<pcl::PointXYZRGB>());
@@ -245,7 +260,7 @@ void SceneCompletionNode::point_cloud_to_mesh(pcl::PointCloud<pcl::PointXYZRGB>:
      meshMsg.triangles = result->mesh.triangles;
 
      pcl::toROSMsg(*partialCloudMeshFrame, partialCloudMsg);
-
+     ROS_INFO_STREAM("PARTIAL CLOUD SIZE: " << partialCloudMeshFrame->size() << std::endl);
     //now we have a mesh with the origin at the center of the base in the world frame of reference
     //lets get the transform from world to mesh center
      ROS_INFO_STREAM("OBJECT POSE IN FRAME: " << world_frame << std::endl);

@@ -41,13 +41,13 @@
     ros::NodeHandle &nh_;
     //subscriber to filtered pointcloud
     ros::Subscriber cloud_sub_;
-    ros::Publisher objects_pub_;
-    ros::Publisher markers_pub_;
-    ros::Publisher foreground_points_pub_;
-    //tf::TransformListener listener_;
 
     actionlib::SimpleActionServer<pc_pipeline_msgs::CompleteSceneAction> as_;
-
+    
+    actionlib::SimpleActionClient<pc_pipeline_msgs::CompletePartialCloudAction> depth_cnn_client;
+    actionlib::SimpleActionClient<pc_pipeline_msgs::CompletePartialCloudAction> depth_tactile_cnn_client;
+    actionlib::SimpleActionClient<pc_pipeline_msgs::CompletePartialCloudAction> partial_client;
+      
     //topic in which we listen for filtered pointclouds from
     //this is grabbed from the ros param server.
     std::string filtered_cloud_topic;
@@ -71,7 +71,7 @@
     std::list<boost::shared_ptr<pcl::PointCloud<pcl::PointXYZRGB> > > clouds_queue_;
     void point_cloud_to_mesh(pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud,
                              Eigen::Matrix4f transformEigen,
-			     actionlib::SimpleActionClient<pc_pipeline_msgs::CompletePartialCloudAction> &client,
+			     std::string object_completion_topic,
                              shape_msgs::Mesh &meshMsg,
                              geometry_msgs::PoseStamped  &poseStampedMsg,
                              sensor_msgs::PointCloud2 &partialCloudMsg);

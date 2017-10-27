@@ -116,6 +116,7 @@ catkin_package(
 include_directories(include
     ${PCL_INCLUDE_DIRS}
     ${Boost_INCLUDE_DIRS}
+    ${catkin_INCLUDE_DIRS}
 )
 
 link_directories(${PCL_LIBRARY_DIRS})
